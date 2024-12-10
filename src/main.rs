@@ -11,7 +11,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 use tokio_tungstenite::connect_async;
-
+use std::net::SocketAddr;
 /// Our global unique user id counter.
 static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -20,12 +20,14 @@ static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
 /// - Key is their id
 /// - Value is a sender of `warp::ws::Message`
 // type Users = Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<Message>>>>;
+
+
 type Users = Arc<RwLock<HashMap<usize, (Option<String>, mpsc::UnboundedSender<Message>)>>>;
 
 #[derive(Deserialize)]
 struct LoginMessage {
     cmd: String,
-    id: Option<String>, // 用户的 UUID
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -71,12 +73,13 @@ async fn main() {
     //     .and_then(send_message_to_user);
 
         let send_message_route = warp::path("send_message")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then(send_message_to_user);
+            .and(warp::addr::remote())
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(send_message_to_user);
 
     // GET / -> index html
-    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    // let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
 
     let routes = send_message_route.or(chat);
     //.or(send_message);
@@ -85,8 +88,20 @@ async fn main() {
 }
 
 async fn send_message_to_user(
-    body: HSendMessage
+    addr: Option<SocketAddr>,
+    body: HSendMessage,
+    
 ) -> Result<impl warp::Reply, warp::Rejection> {
+
+    match addr {
+        Some(address) => {
+            println!("Received request from IP: {} and Port: {}", address.ip(), address.port());
+        },
+        None => {
+            println!("No remote address found");
+        }
+    }
+
     let ws_url = "ws://127.0.0.1:3030/chat";
 
     // Try to establish a WebSocket connection
@@ -288,53 +303,53 @@ async fn user_disconnected(my_id: usize, users: &Users) {
     users.write().await.remove(&my_id);
 }
 
-static INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <title>Warp Chat</title>
-    </head>
-    <body>
-        <h1>Warp chat</h1>
-        <div id="chat">
-            <p><em>Connecting...</em></p>
-        </div>
-        <input type="text" id="text" />
-        <button type="button" id="send">Send</button>
-        <script type="text/javascript">
-        const chat = document.getElementById('chat');
-        const text = document.getElementById('text');
-        const uri = 'ws://' + location.host + '/chat';
-        const ws = new WebSocket(uri);
+// static INDEX_HTML: &str = r#"<!DOCTYPE html>
+// <html lang="en">
+//     <head>
+//         <title>Warp Chat</title>
+//     </head>
+//     <body>
+//         <h1>Warp chat</h1>
+//         <div id="chat">
+//             <p><em>Connecting...</em></p>
+//         </div>
+//         <input type="text" id="text" />
+//         <button type="button" id="send">Send</button>
+//         <script type="text/javascript">
+//         const chat = document.getElementById('chat');
+//         const text = document.getElementById('text');
+//         const uri = 'ws://' + location.host + '/chat';
+//         const ws = new WebSocket(uri);
 
-        function message(data) {
-            const line = document.createElement('p');
-            line.innerText = data;
-            chat.appendChild(line);
-        }
+//         function message(data) {
+//             const line = document.createElement('p');
+//             line.innerText = data;
+//             chat.appendChild(line);
+//         }
 
-        ws.onopen = function() {
-            chat.innerHTML = '<p><em>Connected!</em></p>';
-        };
+//         ws.onopen = function() {
+//             chat.innerHTML = '<p><em>Connected!</em></p>';
+//         };
 
-        ws.onmessage = function(msg) {
-            message(msg.data);
-        };
+//         ws.onmessage = function(msg) {
+//             message(msg.data);
+//         };
 
-        ws.onclose = function() {
-            chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
-        };
+//         ws.onclose = function() {
+//             chat.getElementsByTagName('em')[0].innerText = 'Disconnected!';
+//         };
 
-        send.onclick = function() {
-            const msg = text.value;
-            ws.send(msg);
-            text.value = '';
+//         send.onclick = function() {
+//             const msg = text.value;
+//             ws.send(msg);
+//             text.value = '';
 
-            message('<You>: ' + msg);
-        };
-        </script>
-    </body>
-</html>
-"#;
+//             message('<You>: ' + msg);
+//         };
+//         </script>
+//     </body>
+// </html>
+// "#;
 
 
 // use std::collections::HashMap;
