@@ -15,6 +15,9 @@ use std::net::SocketAddr;
 /// Our global unique user id counter.
 static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
 
+#[macro_use]
+mod utils;
+
 /// Our state of currently connected users.
 ///
 /// - Key is their id
@@ -95,10 +98,10 @@ async fn send_message_to_user(
 
     match addr {
         Some(address) => {
-            println!("Received request from IP: {} and Port: {}", address.ip(), address.port());
+            eprintln_with_time!("Received request from IP: {} and Port: {}", address.ip(), address.port());
         },
         None => {
-            println!("No remote address found");
+            eprintln_with_time!("No remote address found");
         }
     }
 
@@ -108,7 +111,7 @@ async fn send_message_to_user(
     let (ws_stream, _) = match connect_async(ws_url).await {
         Ok(connection) => connection,
         Err(e) => {
-            eprintln!("Failed to connect to WebSocket server: {}", e);
+            eprintln_with_time!("Failed to connect to WebSocket server: {}", e);
             // return Ok(warp::reply::with_status(
             //     "Failed to connect to WebSocket server",
             //     StatusCode::INTERNAL_SERVER_ERROR,
@@ -129,7 +132,7 @@ async fn send_message_to_user(
     // Send the message over the WebSocket
     let (mut write, _read) = ws_stream.split();
     if let Err(e) = write.send(tokio_tungstenite::tungstenite::Message::Text(ws_message)).await {
-        eprintln!("Failed to send message: {}", e);
+        eprintln_with_time!("Failed to send message: {}", e);
        
         return Ok(warp::reply::with_status( "Failed to send message over WebSocket", warp::http::StatusCode::INTERNAL_SERVER_ERROR))
     }
@@ -166,12 +169,12 @@ async fn send_message_to_user(
 //     // let new_msg = format!("{}", message);
 //     // if let Some((_, tx)) = users.iter().find(|(_, (uuid, _))| uuid.as_ref() == Some(&user_uuid)) {
 //     //     if let Err(_disconnected) = tx.1.send(Message::text(new_msg.clone())) {
-//     //         eprintln!("User with UUID {} is disconnected", user_uuid);
+//     //         eprintln_with_time!("User with UUID {} is disconnected", user_uuid);
 //     //         Ok(warp::reply::with_status("User is disconnected", warp::http::StatusCode::NOT_FOUND));
 //     //     }
 //     //     Ok(warp::reply::with_status("Message sent", warp::http::StatusCode::OK));
 //     // } else {
-//     //     eprintln!("User with UUID {} not found", user_uuid);
+//     //     eprintln_with_time!("User with UUID {} not found", user_uuid);
 //     //     Ok(warp::reply::with_status("User not found", warp::http::StatusCode::NOT_FOUND));
 //     // }
 
@@ -192,7 +195,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
     // Use a counter to assign a new unique ID for this user.
     let my_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
 
-    eprintln!("new chat user: {}", my_id);
+    eprintln_with_time!("new chat user: {}", my_id);
 
     // Split the socket into a sender and receive of messages.
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
@@ -207,7 +210,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
             user_ws_tx
                 .send(message)
                 .unwrap_or_else(|e| {
-                    eprintln!("websocket send error: {}", e);
+                    eprintln_with_time!("websocket send error: {}", e);
                 })
                 .await;
         }
@@ -225,7 +228,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
-                eprintln!("websocket error(uid={}): {}", my_id, e);
+                eprintln_with_time!("websocket error(uid={}): {}", my_id, e);
                 break;
             }
         };
@@ -244,7 +247,7 @@ async fn user_message(my_id: usize, msg: Message, users: &Users) {
     } else {
         return;
     };
-    eprintln!("msg{}",msg);
+    eprintln_with_time!("msg{}",msg);
     if let Ok(parsed) = serde_json::from_str::<LoginMessage>(msg) {
         if parsed.cmd == "login" {
             if let Some(new_id) = parsed.id {
@@ -253,8 +256,8 @@ async fn user_message(my_id: usize, msg: Message, users: &Users) {
                 if let Some((uuid, _)) = users.get_mut(&my_id) {
                     *uuid = Some(new_id.clone());
                 }
-                // eprintln!("new chat user: {}", my_id);
-                eprintln!("User#{} logged in as {}", my_id, new_id);
+                // eprintln_with_time!("new chat user: {}", my_id);
+                eprintln_with_time!("User#{} logged in as {}", my_id, new_id);
             }
             return;
         }
@@ -270,17 +273,17 @@ async fn user_message(my_id: usize, msg: Message, users: &Users) {
                 let users = users.read().await;
                 if let Some((_, tx)) = users.iter().find(|(_, (uuid, _))| uuid.as_ref() == Some(&to)) {
                     if let Err(_disconnected) = tx.1.send(Message::text(new_msg.clone())) {
-                        eprintln!("User with UUID {} is disconnected", to);
+                        eprintln_with_time!("User with UUID {} is disconnected", to);
                     }
                 } else {
-                    eprintln!("User with UUID {} not found", to);
+                    eprintln_with_time!("User with UUID {} not found", to);
                 }
             }
             return;
         }
     }
 
-    eprintln!("Received invalid message: {}", msg);
+    eprintln_with_time!("Received invalid message: {}", msg);
 
     // let new_msg = format!("<User#{}>: {}", my_id, msg);
 
@@ -297,7 +300,7 @@ async fn user_message(my_id: usize, msg: Message, users: &Users) {
 }
 
 async fn user_disconnected(my_id: usize, users: &Users) {
-    eprintln!("good bye user: {}", my_id);
+    eprintln_with_time!("good bye user: {}", my_id);
 
     // Stream closed up, so remove from the user list
     users.write().await.remove(&my_id);
@@ -374,7 +377,7 @@ async fn user_disconnected(my_id: usize, users: &Users) {
 //         // 这里的 async block 会生成一个 `Send` 的 future
 //         tokio::spawn(async move {
 //             if let Err(e) = handle_client(socket, connections).await {
-//                 eprintln!("Error handling client: {}", e);
+//                 eprintln_with_time!("Error handling client: {}", e);
 //             }
 //         });
 //     }
